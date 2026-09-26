@@ -24,7 +24,7 @@ def get_laya_router():
     return Router()
 
 st.title("Point-of-Interest Search-Term Classifier")
-st.caption("Exact rules handle literal facts. Laya interprets unresolved meaning. Final actions stay reviewable.")
+st.caption("Exact rules handle literal facts. Enable Laya only when the cloud instance has enough memory for the model checkpoint.")
 with st.sidebar:
     st.header("Campaign settings")
     attraction=st.text_input("Main attraction","London Eye")
@@ -34,7 +34,7 @@ with st.sidebar:
     resellers=st.text_area("Reseller names","GetYourGuide, Viator, Klook, Tiqets, Golden Tours, Groupon, Booking.com")
     info=st.text_area("Informational phrases","opening times, hours, duration, directions, reviews, facts, photos, address, where is")
     purchase=st.text_area("Purchase phrases","ticket, tickets, book, booking, reservation, price, cost, discount, availability, fast track, experience")
-    use_laya=st.checkbox("Run Laya semantic judge on unresolved terms",True)
+    use_laya=st.checkbox("Run Laya semantic judge on unresolved terms",False)
 c={"attraction":attraction,"aliases":terms(aliases),"products":terms(products),"related":terms(related),"resellers":terms(resellers),"info":terms(info),"purchase":terms(purchase)}
 up=st.file_uploader("Upload a search-term CSV",type=["csv"])
 if up:
