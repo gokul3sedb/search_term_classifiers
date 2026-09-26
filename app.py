@@ -28,13 +28,14 @@ def questions(c):
 @st.cache_resource
 def laya_client(url): return Client(url.rstrip("/"))
 
-def laya_predict(url, term, q):
-    raw = laya_client(url).predict(term, json.dumps(q, ensure_ascii=False), api_name="/predict")
+def laya_batch(url, batch, q):
+    raw = laya_client(url).predict(json.dumps(batch, ensure_ascii=False), json.dumps(q, ensure_ascii=False), api_name="/predict_batch")
     data = json.loads(raw) if isinstance(raw, str) else raw
-    return data.get("answers", data)
+    if isinstance(data, dict) and "error" in data: raise RuntimeError(data["error"])
+    return data
 
 st.title("Point-of-Interest Search-Term Classifier")
-st.caption("Exact rules decide obvious terms. Laya reviews unresolved terms through a separate Hugging Face service.")
+st.caption("Exact rules decide obvious terms. Laya reviews unresolved terms in batches through Hugging Face.")
 with st.sidebar:
     st.header("Campaign settings")
     attraction = st.text_input("Main attraction", "London Eye")
@@ -54,18 +55,27 @@ if up:
     key = next((k for k in reader.fieldnames if norm(k) in {"search term", "term", "keyword"}), reader.fieldnames[0])
     rows = [r for r in rows if norm(r.get(key, "")).strip() not in {"grand total", "total"}]
     unique = list(dict.fromkeys(r.get(key, "") for r in rows)); results = {}; bar = st.progress(0.0)
-    for i, term in enumerate(unique):
+    unresolved = []
+    for term in unique:
         route, reason = exact(term, c); rec = "Review"
         if route == "Clear keep": rec = "Keep candidate"
         elif route == "Clear exclude": rec = "Exclude candidate"
-        elif use_laya:
+        else: unresolved.append(term)
+        results[term] = (route, rec, reason)
+    if use_laya and unresolved:
+        q = questions(c)
+        for start in range(0, len(unresolved), 32):
+            batch = unresolved[start:start + 32]
             try:
-                a = laya_predict(laya_url, term, questions(c)); exp = a["experience"]["choice"]; intent = a["intent"]["choice"]
-                route = "Laya semantic triage"; reason = f"Laya experience={exp}; intent={intent}"
-                rec = "Review — proposed exclude" if exp in ("combo", "other") or intent in ("information", "support") else "Review — proposed keep" if exp == "main_only" and intent == "purchase" else "Review"
+                answers = laya_batch(laya_url, batch, q)
+                for term, item in zip(batch, answers):
+                    a = item.get("answers", item); exp = a["experience"]["choice"]; intent = a["intent"]["choice"]
+                    rec = "Review — proposed exclude" if exp in ("combo", "other") or intent in ("information", "support") else "Review — proposed keep" if exp == "main_only" and intent == "purchase" else "Review"
+                    results[term] = ("Laya semantic triage", rec, f"Laya experience={exp}; intent={intent}")
             except Exception as e:
-                route = "Needs semantic triage"; reason = f"Laya unavailable: {e}"
-        results[term] = (route, rec, reason); bar.progress((i + 1) / len(unique))
+                for term in batch: results[term] = ("Needs semantic triage", "Review", f"Laya unavailable: {e}")
+            bar.progress(min(1.0, (start + len(batch)) / max(1, len(unique))))
+    else: bar.progress(1.0)
     out = []
     for r in rows:
         route, rec, reason = results[r.get(key, "")]; x = dict(r); x.update({"Final route": route, "Recommendation": rec, "Reason": reason, "Your decision": ""}); out.append(x)
