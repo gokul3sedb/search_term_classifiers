@@ -18,6 +18,11 @@ def exact(term,c):
 def questions(c):
     products=", ".join(c["products"]) or "entry tickets and experiences"
     return {"experience":{"type":"choice","instructions":f"Which experience does this search term seek? The campaign sells {c['attraction']}; products include {products}.","criteria":{"main_only":f"{c['attraction']} only","combo":f"{c['attraction']} with another attraction, cruise, tour, or pass","other":"Another attraction or experience","unclear":"Cannot determine"}},"intent":{"type":"choice","instructions":"What is the user's intent?","criteria":{"purchase":"Tickets, prices, booking, availability, discounts, or a paid experience","information":"Hours, duration, directions, facts, reviews, photos, or general information","support":"Existing booking, cancellation, refund, login, or customer service","unclear":"Cannot determine"}}}
+@st.cache_resource(show_spinner="Loading Laya semantic judge...")
+def get_laya_router():
+    from laya import Router
+    return Router()
+
 st.title("Point-of-Interest Search-Term Classifier")
 st.caption("Exact rules handle literal facts. Laya interprets unresolved meaning. Final actions stay reviewable.")
 with st.sidebar:
@@ -29,19 +34,19 @@ with st.sidebar:
     resellers=st.text_area("Reseller names","GetYourGuide, Viator, Klook, Tiqets, Golden Tours, Groupon, Booking.com")
     info=st.text_area("Informational phrases","opening times, hours, duration, directions, reviews, facts, photos, address, where is")
     purchase=st.text_area("Purchase phrases","ticket, tickets, book, booking, reservation, price, cost, discount, availability, fast track, experience")
-    use_laya=st.checkbox("Run local Laya on unresolved terms",False)
-    model_path=st.text_input("Local Laya model path",os.environ.get("LAYA_MODEL_PATH",""))
+    use_laya=st.checkbox("Run Laya semantic judge on unresolved terms",True)
 c={"attraction":attraction,"aliases":terms(aliases),"products":terms(products),"related":terms(related),"resellers":terms(resellers),"info":terms(info),"purchase":terms(purchase)}
 up=st.file_uploader("Upload a search-term CSV",type=["csv"])
 if up:
     text=up.getvalue().decode("utf-8-sig",errors="replace"); reader=csv.DictReader(io.StringIO(text)); rows=list(reader)
     if not rows: st.error("CSV is empty"); st.stop()
+    before=len(rows); rows=[r for r in rows if norm(r.get(next((k for k in reader.fieldnames if norm(k) in {"search term","term","keyword"}),reader.fieldnames[0]),"")).strip() not in {"grand total","total"}]
+    removed_summary=before-len(rows)
+    if removed_summary: st.info(f"Removed {removed_summary:,} summary row(s) before classification.")
     key=next((k for k in reader.fieldnames if norm(k) in {"search term","term","keyword"}),reader.fieldnames[0])
     agent=None
-    if use_laya and model_path:
-        try:
-            from laya import load
-            agent=load(model_path,device="cpu")
+    if use_laya:
+        try: agent=get_laya_router()
         except Exception as e: st.error(f"Laya load failed: {e}")
     results={}; unique=list(dict.fromkeys(r.get(key,"") for r in rows)); bar=st.progress(0.0)
     for i,t in enumerate(unique):
